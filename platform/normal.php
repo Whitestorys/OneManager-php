@@ -2,6 +2,7 @@
 
 function getpath()
 {
+    $_SERVER['firstacceptlanguage'] = strtolower(splitfirst(splitfirst($_SERVER['HTTP_ACCEPT_LANGUAGE'],';')[0],',')[0]);
     $_SERVER['base_path'] = path_format(substr($_SERVER['SCRIPT_NAME'], 0, -10) . '/');
     $p = strpos($_SERVER['REQUEST_URI'],'?');
     if ($p>0) $path = substr($_SERVER['REQUEST_URI'], 0, $p);
@@ -41,17 +42,21 @@ function getConfig($str, $disktag = '')
     global $InnerEnv;
     global $Base64Env;
     //include 'config.php';
-    if ($disktag=='') $disktag = $_SERVER['disktag'];
     $s = file_get_contents('config.php');
     $configs = substr($s, 18, -2);
     if ($configs!='') {
         $envs = json_decode($configs, true);
         if (in_array($str, $InnerEnv)) {
-            if (in_array($str, $Base64Env)) return equal_replace($envs[$disktag][$str],1);
-            else return $envs[$disktag][$str];
+            if ($disktag=='') $disktag = $_SERVER['disktag'];
+            if (isset($envs[$disktag][$str])) {
+                if (in_array($str, $Base64Env)) return equal_replace($envs[$disktag][$str],1);
+                else return $envs[$disktag][$str];
+            }
         } else {
-            if (in_array($str, $Base64Env)) return equal_replace($envs[$str],1);
-            else return $envs[$str];
+            if (isset($envs[$str])) {
+                if (in_array($str, $Base64Env)) return equal_replace($envs[$str],1);
+                else return $envs[$str];
+            }
         }
     }
     return '';
@@ -67,14 +72,13 @@ function setConfig($arr, $disktag = '')
     $configs = substr($s, 18, -2);
     if ($configs!='') $envs = json_decode($configs, true);
     $disktags = explode("|",getConfig('disktag'));
-    //$indisk = 0;
+    $indisk = 0;
     $operatedisk = 0;
     foreach ($arr as $k => $v) {
         if (in_array($k, $InnerEnv)) {
             if (in_array($k, $Base64Env)) $envs[$disktag][$k] = equal_replace($v);
             else $envs[$disktag][$k] = $v;
-            /*$diskconfig[$k] = $v;
-            $indisk = 1;*/
+            $indisk = 1;
         } elseif ($k=='disktag_add') {
             array_push($disktags, $v);
             $operatedisk = 1;
@@ -87,11 +91,12 @@ function setConfig($arr, $disktag = '')
             else $envs[$k] = $v;
         }
     }
-    /*if ($indisk) {
+    if ($indisk) {
+        $diskconfig = $envs[$disktag];
         $diskconfig = array_filter($diskconfig, 'array_value_isnot_null');
         ksort($diskconfig);
-        $tmp[$disktag] = json_encode($diskconfig);
-    }*/
+        $envs[$disktag] = $diskconfig;
+    }
     if ($operatedisk) {
         $disktags = array_unique($disktags);
         foreach ($disktags as $disktag) if ($disktag!='') $disktag_s .= $disktag . '|';
@@ -111,40 +116,89 @@ function setConfig($arr, $disktag = '')
 function install()
 {
     global $constStr;
-    if ($_GET['install1']) {
+    if ($_GET['install2']) {
         if ($_POST['admin']!='') {
             $tmp['admin'] = $_POST['admin'];
-            $tmp['language'] = $_POST['language'];
+            //$tmp['language'] = $_COOKIE['language'];
+            $tmp['timezone'] = $_COOKIE['timezone'];
             $response = setConfig($tmp);
             if (api_error($response)) {
                 $html = api_error_msg($response);
                 $title = 'Error';
                 return message($html, $title, 201);
             } else {
-                return output('Jump<meta http-equiv="refresh" content="3;URL=' . path_format($_SERVER['base_path'] . '/') . '">', 302);
+                return output('Jump<script>document.cookie=\'language=; path=/\';</script><meta http-equiv="refresh" content="3;URL=' . path_format($_SERVER['base_path'] . '/') . '">', 302);
             }
         }
     }
-    if ($_GET['install0']) {
+    if ($_GET['install1']) {
         if (!ConfigWriteable()) {
             $html .= getconstStr('MakesuerWriteable');
             $title = 'Error';
             return message($html, $title, 201);
         }
-        if (!RewriteEngineOn()) {
+        /*if (!RewriteEngineOn()) {
             $html .= getconstStr('MakesuerRewriteOn');
             $title = 'Error';
             return message($html, $title, 201);
+        }*/
+        $html .= '<button id="checkrewritebtn" onclick="checkrewrite();">'.getconstStr('MakesuerRewriteOn').'</button>
+<div id="formdiv" style="display: none">
+    <form action="?install2" method="post" onsubmit="return notnull(this);">
+        <input name="admin" type="password" placeholder="' . getconstStr('EnvironmentsDescription')['admin'] . '" size="' . strlen(getconstStr('EnvironmentsDescription')['admin']) . '"><br>
+        <input id="submitbtn" type="submit" value="'.getconstStr('Submit').'" disabled>
+    </form>
+</div>
+    <script>
+        var nowtime= new Date();
+        var timezone = 0-nowtime.getTimezoneOffset()/60;
+        var expd = new Date();
+        expd.setTime(expd.getTime()+(2*60*60*1000));
+        var expires = "expires="+expd.toGMTString();
+        document.cookie="timezone="+timezone+"; path=/; "+expires;
+        function notnull(t)
+        {
+            if (t.admin.value==\'\') {
+                alert(\''.getconstStr('SetAdminPassword').'\');
+                return false;
+            }
+            return true;
         }
+        function checkrewrite()
+        {
+            url=location.protocol + "//" + location.host;
+            //if (location.port!="") url += ":" + location.port;
+            url += location.pathname;
+            if (url.substr(-1)!="/") url += "/";
+            url += "config.php";
+            //alert(url);
+            var xhr4 = new XMLHttpRequest();
+            xhr4.open("GET", url);
+            xhr4.setRequestHeader("x-requested-with","XMLHttpRequest");
+            xhr4.send(null);
+            xhr4.onload = function(e){
+                console.log(xhr4.responseText+","+xhr4.status);
+                if (xhr4.status==201) {
+                    document.getElementById("checkrewritebtn").style.display = "none";
+                    document.getElementById("submitbtn").disabled = false;
+                    document.getElementById("formdiv").style.display = "";
+                } else {
+                    alert(url+"\n"+xhr4.status);
+                }
+            }
+        }
+    </script>';
+        $title = getconstStr('SetAdminPassword');
+        return message($html, $title, 201);
+    }
+    if ($_GET['install0']) {
         $html .= '
-    <form action="?install1" method="post" onsubmit="return notnull(this);">
+    <form action="?install1" method="post">
 language:<br>';
         foreach ($constStr['languages'] as $key1 => $value1) {
             $html .= '
         <label><input type="radio" name="language" value="'.$key1.'" '.($key1==$constStr['language']?'checked':'').' onclick="changelanguage(\''.$key1.'\')">'.$value1.'</label><br>';
         }
-        $html .= '
-        <label>Set admin password:<input name="admin" type="password" placeholder="' . getconstStr('EnvironmentsDescription')['admin'] . '" size="' . strlen(getconstStr('EnvironmentsDescription')['admin']) . '"></label><br>';
         $html .= '
         <input type="submit" value="'.getconstStr('Submit').'">
     </form>
@@ -153,14 +207,6 @@ language:<br>';
         {
             document.cookie=\'language=\'+str+\'; path=/\';
             location.href = location.href;
-        }
-        function notnull(t)
-        {
-            if (t.admin.value==\'\') {
-                alert(\'input admin\');
-                return false;
-            }
-            return true;
         }
     </script>';
         $title = getconstStr('SelectLanguage');
