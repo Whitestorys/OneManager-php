@@ -153,6 +153,7 @@ function main($path)
     global $exts;
     global $constStr;
 
+    $path = path_format($path);
     if (in_array($_SERVER['firstacceptlanguage'], array_keys($constStr['languages']))) {
         $constStr['language'] = $_SERVER['firstacceptlanguage'];
     } else {
@@ -216,10 +217,14 @@ function main($path)
 //    echo 'count$disk:'.count($disktags);
     if (count($disktags)>1) {
         if ($path=='/'||$path=='') return output('', 302, [ 'Location' => path_format($_SERVER['base_path'].'/'.$disktags[0].'/') ]);
-        $_SERVER['disktag'] = $path;
-        $pos = strpos($path, '/');
-        if ($pos>1) $_SERVER['disktag'] = substr($path, 0, $pos);
-        if (!in_array($_SERVER['disktag'], $disktags)) return message('<meta http-equiv="refresh" content="2;URL='.$_SERVER['base_path'].'">Please visit from <a href="'.$_SERVER['base_path'].'">Home Page</a>.', 'Error', 404);
+        $_SERVER['disktag'] = splitfirst( substr(path_format($path), 1), '/' )[0];
+        //$pos = strpos($path, '/');
+        //if ($pos>1) $_SERVER['disktag'] = substr($path, 0, $pos);
+        if (!in_array($_SERVER['disktag'], $disktags)) {
+            $tmp = path_format($_SERVER['base_path'].'/'.$disktags[0].'/'.$path);
+            return output('Please visit <a href="'.$tmp.'">'.$tmp.'</a>.', 302, [ 'Location' => $tmp ]);
+            //return message('<meta http-equiv="refresh" content="2;URL='.$_SERVER['base_path'].'">Please visit from <a href="'.$_SERVER['base_path'].'">Home Page</a>.', 'Error', 404);
+        }
         $path = substr($path, strlen('/'.$_SERVER['disktag']));
         if ($_SERVER['disktag']!='') $_SERVER['base_disk_path'] = path_format($_SERVER['base_disk_path']. '/' . $_SERVER['disktag'] . '/');
     } else $_SERVER['disktag'] = $disktags[0];
@@ -1797,6 +1802,13 @@ function render_list($path = '', $files = '')
                 $tmp = splitfirst($tmp[1], '<!--LoginEnd-->');
                 $html .= $tmp[1];
             }
+            $tmp[1] = 'a';
+            while ($tmp[1]!='') {
+                $tmp = splitfirst($html, '<!--GuestStart-->');
+                $html = $tmp[0];
+                $tmp = splitfirst($tmp[1], '<!--GuestEnd-->');
+                $html .= $tmp[1];
+            }
             while (strpos($html, '<!--AdminStart-->')) {
                 $html = str_replace('<!--AdminStart-->', '', $html);
                 $html = str_replace('<!--AdminEnd-->', '', $html);
@@ -1837,6 +1849,8 @@ function render_list($path = '', $files = '')
                     $html .= $tmp[1];
                 }
             }
+            while (strpos($html, '<!--GuestStart-->')) $html = str_replace('<!--GuestStart-->', '', $html);
+            while (strpos($html, '<!--GuestEnd-->')) $html = str_replace('<!--GuestEnd-->', '', $html);
         }
 
         if ($_SERVER['is_guestup_path']&&!$_SERVER['admin']) {
@@ -1852,6 +1866,12 @@ function render_list($path = '', $files = '')
                 $tmp = splitfirst($html, '<!--IsFolderStart-->');
                 $html = $tmp[0];
                 $tmp = splitfirst($tmp[1], '<!--IsFolderEnd-->');
+                $html .= $tmp[1];
+            }
+            while (strpos($html, '<!--EncryptedStart-->')) {
+                $tmp = splitfirst($html, '<!--EncryptedStart-->');
+                $html = $tmp[0];
+                $tmp = splitfirst($tmp[1], '<!--EncryptedEnd-->');
                 $html .= $tmp[1];
             }
             while (strpos($html, '<!--GuestUploadStart-->')) {
